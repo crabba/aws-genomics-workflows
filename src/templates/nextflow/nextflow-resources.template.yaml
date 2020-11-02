@@ -251,7 +251,7 @@ Resources:
                       - !Sub "s3://${S3NextflowBucketName}"
                   - !Ref S3WorkDirPrefix
 
-      JobDefinitionName: nextflow
+      JobDefinitionName: !Sub "${AWS::StackName}-nextflow"
 
 
 Outputs:
