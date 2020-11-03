@@ -58,6 +58,11 @@ Mappings:
         - cp -au /var/lib/docker.bk/* /var/lib/docker
         - cd /opt && wget $artifactRootUrl/aws-ecs-additions.tgz && tar -xzf aws-ecs-additions.tgz
         - sh /opt/ecs-additions/ecs-additions-nextflow.sh
+        - export my_id=`curl -s http://169.254.169.254/latest/meta-data/instance-id`
+        - [ ! -s /usr/local/amazon-ebs-autoscale/bin/ebs-autoscale ] && echo "ERROR Unable to find ebs-autoscale, shutdown ${my_id}" 1>&2
+        - [ ! -s /usr/local/amazon-ebs-autoscale/bin/ebs-autoscale ] && shutdown -P now
+        - [ ! -s /opt/ecs-additions/ecs-additions-nextflow.sh ] && echo "ERROR Unable to find ecs-additions-nextflow.sh, shutdown ${my_id}" 1>&2
+        - [ ! -s /opt/ecs-additions/ecs-additions-nextflow.sh ] && shutdown -P now
         - service docker start
         - start ecs
 
@@ -143,6 +148,116 @@ Resources:
               Content-Type: text/cloud-config; charset="us-ascii"
 
               packages:
+              - awslogs
+              - jq
+              - amazon-ssm-agent
+
+              runcmd:
+              - start amazon-ssm-agent
+
+              write_files:
+              - path: /etc/awslogs/awslogs.conf
+                content: |
+                  [general]
+                  state_file = /var/lib/awslogs/agent-state
+
+                  [/var/log/dmesg]
+                  file = /var/log/dmesg
+                  log_group_name = /ecs/{cluster}/instances#ecs#dmesg
+                  log_stream_name = {container_instance_id}
+
+                  [/var/log/messages]
+                  file = /var/log/messages
+                  log_group_name = /ecs/{cluster}/instances#ecs#messages
+                  log_stream_name = {container_instance_id}
+                  datetime_format = %b %d %H:%M:%S
+
+                  [/var/log/docker]
+                  file = /var/log/docker
+                  log_group_name = /ecs/{cluster}/instances#ecs#docker
+                  log_stream_name = {container_instance_id}
+                  datetime_format = %Y-%m-%dT%H:%M:%S.%f
+
+                  [/var/log/ecs/ecs-init.log]
+                  file = /var/log/ecs/ecs-init.log*
+                  log_group_name = /ecs/{cluster}/instances#ecs#ecs-init.log
+                  log_stream_name = {container_instance_id}
+                  datetime_format = %Y-%m-%dT%H:%M:%SZ
+
+                  [/var/log/ecs/ecs-agent.log]
+                  file = /var/log/ecs/ecs-agent.log*
+                  log_group_name = /ecs/{cluster}/instances#ecs#ecs-agent.log
+                  log_stream_name = {container_instance_id}
+                  datetime_format = %Y-%m-%dT%H:%M:%SZ
+
+                  [/var/log/ecs/audit.log]
+                  file = /var/log/ecs/audit.log*
+                  log_group_name = /ecs/{cluster}/instances#ecs#audit.log
+                  log_stream_name = {container_instance_id}
+                  datetime_format = %Y-%m-%dT%H:%M:%SZ
+
+                  [/var/log/cloud-init.log]
+                  file = /var/log/cloud-init-output.log*
+                  log_group_name = /ecs/{cluster}/instances#ecs#cloud-init.log
+                  log_stream_name = {container_instance_id}
+                  datetime_format = %Y-%m-%dT%H:%M:%SZ
+
+                  [/var/log/cloud-init-output.log]
+                  file = /var/log/cloud-init-output.log*
+                  log_group_name = /ecs/{cluster}/instances#ecs#cloud-init-output.log
+                  log_stream_name = {container_instance_id}
+                  datetime_format = %Y-%m-%dT%H:%M:%SZ
+
+              --==BOUNDARY==
+              Content-Type: text/x-shellscript; charset="us-ascii"
+              #!/bin/bash -e
+
+              # Install awslogs and the jq JSON parser
+              yum install -y awslogs jq
+
+              # Set the region to send CloudWatch Logs data to (the region where the container instance is located)
+              region=$(curl 169.254.169.254/latest/meta-data/placement/availability-zone | sed s'/.$//')
+              sed -i -e "s/region = us-east-1/region = $region/g" /etc/awslogs/awscli.conf
+
+              cat > /etc/init/ecs-awslogs.conf <<- 'EOF'
+              description "Configure and start CloudWatch Logs agent on Amazon ECS container instance"
+              author "Amazon Web Services"
+              start on started ecs
+
+              script
+                exec 2>>/var/log/ecs/cloudwatch-logs-start.log
+                set -x
+
+                until curl -s http://localhost:51678/v1/metadata
+                do
+                  sleep 1
+                done
+
+                # Grab the cluster and container instance ARN from instance metadata
+                cluster=$(curl -s http://localhost:51678/v1/metadata | jq -r '. | .Cluster')
+                container_instance_id=$(curl -s http://localhost:51678/v1/metadata | jq -r '. | .ContainerInstanceArn' | awk -F/ '{print $2}' )
+                instance_id=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+                container_instance_id="${instance_id}-${container_instance_id}"
+
+                # Replace the cluster name and container instance ID placeholders with the actual values
+                sed -i -e "s/{cluster}/$cluster/g" /etc/awslogs/awslogs.conf
+                sed -i -e "s/{container_instance_id}/$container_instance_id/g" /etc/awslogs/awslogs.conf
+
+                # Start and enable the CloudWatch Logs agent
+                service awslogs start
+                chkconfig awslogs on
+
+              end script
+              EOF
+
+              start ecs-awslogs
+
+              echo "ECS_ENABLE_SPOT_INSTANCE_DRAINING=true" >> /etc/ecs/ecs.config
+
+              --==BOUNDARY==
+              Content-Type: text/cloud-config; charset="us-ascii"
+
+              packages:
               - jq
               - btrfs-progs
               - sed
@@ -158,6 +273,10 @@ Resources:
               - export scratchPath="${ScratchMountPoint}"
               - export artifactRootUrl="${ArtifactRootUrl}"
               - start amazon-ssm-agent
+
+              - export my_id=`curl -s http://169.254.169.254/latest/meta-data/instance-id`
+              - command -v aws || echo "ERROR aws executable not found - shutting down ${my_id}"
+              - command -v aws || shutdown -P now
 
               ${ECSAdditions}
 
