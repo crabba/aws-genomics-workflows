@@ -58,11 +58,11 @@ Mappings:
         - cp -au /var/lib/docker.bk/* /var/lib/docker
         - cd /opt && wget $artifactRootUrl/aws-ecs-additions.tgz && tar -xzf aws-ecs-additions.tgz
         - sh /opt/ecs-additions/ecs-additions-nextflow.sh
-        - export my_id=`curl -s http://169.254.169.254/latest/meta-data/instance-id`
-        - [ ! -s /usr/local/amazon-ebs-autoscale/bin/ebs-autoscale ] && echo "ERROR Unable to find ebs-autoscale, shutdown ${my_id}" 1>&2
-        - [ ! -s /usr/local/amazon-ebs-autoscale/bin/ebs-autoscale ] && shutdown -P now
-        - [ ! -s /opt/ecs-additions/ecs-additions-nextflow.sh ] && echo "ERROR Unable to find ecs-additions-nextflow.sh, shutdown ${my_id}" 1>&2
-        - [ ! -s /opt/ecs-additions/ecs-additions-nextflow.sh ] && shutdown -P now
+        - export my_inst_id=`curl -s http://169.254.169.254/latest/meta-data/instance-id`
+        - '[ ! -s /usr/local/amazon-ebs-autoscale/bin/ebs-autoscale ] && echo "ERROR Unable to find ebs-autoscale, shutdown ${my_inst_id}" 1>&2'
+        - '[ ! -s /usr/local/amazon-ebs-autoscale/bin/ebs-autoscale ] && shutdown -P now'
+        - '[ ! -s /opt/ecs-additions/ecs-additions-nextflow.sh ] && echo "ERROR Unable to find ecs-additions-nextflow.sh, shutdown ${my_inst_id}" 1>&2'
+        - '[ ! -s /opt/ecs-additions/ecs-additions-nextflow.sh ] && shutdown -P now'
         - service docker start
         - start ecs
 
@@ -274,8 +274,8 @@ Resources:
               - export artifactRootUrl="${ArtifactRootUrl}"
               - start amazon-ssm-agent
 
-              - export my_id=`curl -s http://169.254.169.254/latest/meta-data/instance-id`
-              - command -v aws || echo "ERROR aws executable not found - shutting down ${my_id}"
+              - export my_instance_id=`curl -s http://169.254.169.254/latest/meta-data/instance-id`
+              - command -v aws || echo "ERROR aws executable not found - shutting down ${my_instance_id}"
               - command -v aws || shutdown -P now
 
               ${ECSAdditions}
