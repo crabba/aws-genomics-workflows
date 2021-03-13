@@ -1,9 +1,9 @@
 ARG VERSION=latest
-FROM nextflow/nextflow:${VERSION} AS build
+FROM public.ecr.aws/e2x4u7r1/nextflow:${VERSION} AS build
 
 # The upstream nextflow containers are based on alpine
 # which are not compatible with the aws cli
-FROM amazonlinux:2 AS final
+FROM public.ecr.aws/amazonlinux/amazonlinux:2 AS final
 COPY --from=build /usr/local/bin/nextflow /usr/bin/nextflow
 
 RUN yum update -y \

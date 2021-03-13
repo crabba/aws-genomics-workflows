@@ -58,9 +58,9 @@ To create such a container, you can use a `Dockerfile` like the one below:
 ```Dockerfile
 # use the upstream nextflow container as a base image
 ARG VERSION=latest
-FROM nextflow/nextflow:${VERSION} AS build
+FROM public.ecr.aws/e2x4u7r1/nextflow:${VERSION} AS build
 
-FROM amazonlinux:2 AS final
+FROM public.ecr.aws/amazonlinux/amazonlinux:2 AS final
 COPY --from=build /usr/local/bin/nextflow /usr/bin/nextflow
 
 RUN yum update -y \
